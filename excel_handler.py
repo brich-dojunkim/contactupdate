@@ -1,6 +1,6 @@
 # excel_handler.py
 """
-엑셀 파일 처리 모듈 (영업 종료 표기 개선)
+CSV 파일 처리 모듈 (엑셀 → CSV 변경)
 """
 
 import pandas as pd
@@ -11,24 +11,35 @@ from config import EXCEL_FILE_PATH, COLUMNS
 logger = logging.getLogger(__name__)
 
 class ExcelHandler:
-    """엑셀 파일 처리 클래스"""
+    """CSV 파일 처리 클래스 (이름은 유지, 실제로는 CSV 처리)"""
     
     def __init__(self, file_path=None):
         self.file_path = file_path or EXCEL_FILE_PATH
+        # 확장자를 CSV로 변경
+        if self.file_path.endswith('.xlsx'):
+            self.file_path = self.file_path.replace('.xlsx', '.csv')
         self.df = None
     
     def load_data(self):
-        """엑셀 파일 로드"""
+        """CSV 파일 직접 로드"""
         try:
-            self.df = pd.read_excel(self.file_path)
-            logger.info(f"엑셀 파일 로드 완료: {len(self.df)}개 행")
+            # CSV 파일만 읽기
+            self.df = pd.read_csv(self.file_path, encoding='utf-8')
+            logger.info(f"CSV 파일 로드 완료: {len(self.df)}개 행")
+            print(f"📁 CSV 파일 로드: {self.file_path} ({len(self.df)}개 행)")
             return True
+        except FileNotFoundError:
+            logger.error(f"CSV 파일을 찾을 수 없음: {self.file_path}")
+            print(f"❌ CSV 파일을 찾을 수 없습니다: {self.file_path}")
+            print(f"   현재 경로에 {self.file_path} 파일이 있는지 확인해주세요.")
+            raise
         except Exception as e:
-            logger.error(f"엑셀 파일 로드 실패: {e}")
+            logger.error(f"CSV 파일 로드 실패: {e}")
+            print(f"❌ CSV 파일 로드 실패: {e}")
             raise
     
     def filter_naver_stores(self):
-        """네이버 스마트스토어만 필터링 (영업종료 및 최신화 완료 제외) - 디버깅 강화"""
+        """네이버 스마트스토어만 필터링 (영업종료 및 최신화 완료 제외)"""
         try:
             # 네이버 스마트스토어 URL만 필터링
             naver_stores = self.df[
@@ -36,23 +47,20 @@ class ExcelHandler:
             ].copy()
             
             total_naver_stores = len(naver_stores)
-            print(f"🔍 디버깅: 전체 네이버 스토어 {total_naver_stores}개 발견")
+            print(f"🔍 전체 네이버 스토어 {total_naver_stores}개 발견")
             
-            # 영업종료 항목 디버깅
+            # 영업종료 항목 확인
             phone_col = COLUMNS['UPDATED_PHONE']
             if phone_col in naver_stores.columns:
-                # 영업종료로 시작하는 항목들 확인
                 closed_mask = naver_stores[phone_col].astype(str).str.startswith('영업종료', na=False)
                 closed_stores = naver_stores[closed_mask]
                 
                 if len(closed_stores) > 0:
-                    print(f"🔍 디버깅: 영업종료 표기된 스토어 {len(closed_stores)}개 발견:")
-                    for idx, row in closed_stores.head(5).iterrows():  # 최대 5개만 출력
+                    print(f"🔍 영업종료 표기된 스토어 {len(closed_stores)}개 발견")
+                    for idx, row in closed_stores.head(3).iterrows():
                         store_name = row.get(COLUMNS['COMPANY_NAME'], 'Unknown')
                         phone_value = row.get(phone_col, 'None')
                         print(f"   - {store_name}: {phone_value}")
-                else:
-                    print("🔍 디버깅: 영업종료 표기된 스토어 없음")
             
             # 1. 영업종료로 표기된 항목 제외
             before_closed_filter = len(naver_stores)
@@ -64,24 +72,12 @@ class ExcelHandler:
             # 2. 이미 최신화된 항목 제외
             before_completed_filter = len(naver_stores)
             completed_mask = (
-                # 전화번호와 이메일이 모두 있고
                 (naver_stores[COLUMNS['UPDATED_PHONE']].notna() & 
                  naver_stores[COLUMNS['UPDATED_EMAIL']].notna()) &
-                # 둘 다 빈 문자열이 아니고
                 (naver_stores[COLUMNS['UPDATED_PHONE']].astype(str).str.strip() != '') &
                 (naver_stores[COLUMNS['UPDATED_EMAIL']].astype(str).str.strip() != '') &
-                # ERROR로 시작하지 않는 경우
                 (~naver_stores[COLUMNS['UPDATED_PHONE']].astype(str).str.startswith('ERROR', na=False))
             )
-            
-            completed_stores = naver_stores[completed_mask]
-            if len(completed_stores) > 0:
-                print(f"🔍 디버깅: 최신화 완료된 스토어 {len(completed_stores)}개 발견:")
-                for idx, row in completed_stores.head(3).iterrows():  # 최대 3개만 출력
-                    store_name = row.get(COLUMNS['COMPANY_NAME'], 'Unknown')
-                    phone_value = row.get(COLUMNS['UPDATED_PHONE'], 'None')
-                    email_value = row.get(COLUMNS['UPDATED_EMAIL'], 'None')
-                    print(f"   - {store_name}: {phone_value} / {email_value}")
             
             naver_stores = naver_stores[~completed_mask]
             completed_filtered_count = before_completed_filter - len(naver_stores)
@@ -90,14 +86,6 @@ class ExcelHandler:
             naver_stores = naver_stores.iloc[::-1].reset_index(drop=True)
             
             remaining_count = len(naver_stores)
-            
-            # 처리할 스토어 미리보기
-            if remaining_count > 0:
-                print(f"🔍 디버깅: 처리 예정 스토어 미리보기:")
-                for idx, row in naver_stores.head(3).iterrows():  # 최대 3개만 출력
-                    store_name = row.get(COLUMNS['COMPANY_NAME'], 'Unknown')
-                    phone_value = row.get(COLUMNS['UPDATED_PHONE'], 'None')
-                    print(f"   - {store_name}: {phone_value}")
             
             # 로그 출력
             logger.info(f"전체 네이버 스토어: {total_naver_stores}개")
@@ -114,9 +102,8 @@ class ExcelHandler:
             raise
     
     def mark_as_closed(self, store_info):
-        """스토어를 영업 종료로 표기"""
+        """스토어를 영업 종료로 표기 (CSV 실시간 저장)"""
         try:
-            # 해당 행 찾기 (상호명으로 매칭)
             store_name = store_info[COLUMNS['COMPANY_NAME']]
             
             # 인덱스 찾기
@@ -128,15 +115,23 @@ class ExcelHandler:
                 
                 # 현재 날짜
                 current_date = datetime.now().strftime('%Y%m%d')
-                
-                # 영업종료 표기
                 closed_mark = f"영업종료_{current_date}"
                 
-                # 최신화 전화번호 컬럼에 영업종료 표기
+                # 업데이트
+                before_value = self.df.loc[idx, COLUMNS['UPDATED_PHONE']]
                 self.df.loc[idx, COLUMNS['UPDATED_PHONE']] = closed_mark
+                after_value = self.df.loc[idx, COLUMNS['UPDATED_PHONE']]
                 
-                logger.info(f"✅ 영업종료 표기 완료: {store_name}")
-                return True
+                print(f"   📝 {before_value} → {after_value}")
+                
+                # 즉시 저장
+                saved_file = self.save()
+                if saved_file:
+                    logger.info(f"✅ 영업종료 실시간 저장 완료: {store_name}")
+                    return True
+                else:
+                    logger.error(f"❌ 영업종료 저장 실패: {store_name}")
+                    return False
             else:
                 logger.warning(f"⚠️ 매칭되는 행을 찾을 수 없음: {store_name}")
                 return False
@@ -146,9 +141,8 @@ class ExcelHandler:
             return False
     
     def update_seller_info(self, store_info, seller_info):
-        """판매자 정보 업데이트"""
+        """판매자 정보 업데이트 (CSV 실시간 저장)"""
         try:
-            # 해당 행 찾기 (상호명으로 매칭)
             store_name = store_info[COLUMNS['COMPANY_NAME']]
             
             # 인덱스 찾기
@@ -159,26 +153,38 @@ class ExcelHandler:
                 idx = indices[0]
                 
                 # 최신화 정보 업데이트
+                updated_fields = []
                 if '전화번호' in seller_info and seller_info['전화번호']:
                     self.df.loc[idx, COLUMNS['UPDATED_PHONE']] = seller_info['전화번호']
+                    updated_fields.append('전화번호')
                     
                 if '이메일' in seller_info and seller_info['이메일']:
                     self.df.loc[idx, COLUMNS['UPDATED_EMAIL']] = seller_info['이메일']
+                    updated_fields.append('이메일')
                 
-                logger.info(f"✅ 엑셀 업데이트 완료: {store_name}")
-                return True
+                # 즉시 저장
+                if updated_fields:
+                    saved_file = self.save()
+                    if saved_file:
+                        logger.info(f"✅ 실시간 업데이트 완료: {store_name} ({', '.join(updated_fields)})")
+                        return True
+                    else:
+                        logger.error(f"❌ 실시간 저장 실패: {store_name}")
+                        return False
+                else:
+                    logger.warning(f"⚠️ 업데이트할 정보 없음: {store_name}")
+                    return False
             else:
                 logger.warning(f"⚠️ 매칭되는 행을 찾을 수 없음: {store_name}")
                 return False
                 
         except Exception as e:
-            logger.error(f"엑셀 업데이트 실패: {e}")
+            logger.error(f"정보 업데이트 실패: {e}")
             return False
     
     def log_error(self, store_info, error_msg):
-        """에러 정보를 엑셀에 기록"""
+        """에러 정보를 CSV에 기록 (실시간 저장)"""
         try:
-            # 해당 행 찾기
             store_name = store_info[COLUMNS['COMPANY_NAME']]
             mask = self.df[COLUMNS['COMPANY_NAME']] == store_name
             indices = self.df[mask].index
@@ -186,23 +192,27 @@ class ExcelHandler:
             if len(indices) > 0:
                 idx = indices[0]
                 
-                # 에러 정보를 최신화 전화번호 컬럼에 기록
                 if COLUMNS['UPDATED_PHONE'] in self.df.columns:
                     self.df.loc[idx, COLUMNS['UPDATED_PHONE']] = f"ERROR: {error_msg}"
                 
-                logger.info(f"에러 정보 기록: {store_name} - {error_msg}")
+                # 즉시 저장
+                self.save()
+                logger.info(f"에러 정보 실시간 저장: {store_name} - {error_msg}")
                 
         except Exception as e:
             logger.error(f"에러 로그 기록 실패: {e}")
     
     def save(self):
-        """엑셀 파일 저장"""
+        """CSV 파일 저장 (매우 빠름)"""
         try:
-            self.df.to_excel(self.file_path, index=False)
-            logger.info(f"📁 엑셀 파일 저장 완료: {self.file_path}")
+            # CSV로 저장 (UTF-8 인코딩)
+            self.df.to_csv(self.file_path, index=False, encoding='utf-8')
+            logger.info(f"💾 CSV 파일 저장 완료: {self.file_path}")
             return self.file_path
+            
         except Exception as e:
-            logger.error(f"파일 저장 실패: {e}")
+            logger.error(f"❌ CSV 저장 실패: {e}")
+            print(f"   ❌ CSV 저장 실패: {e}")
             return None
     
     def get_dataframe(self):

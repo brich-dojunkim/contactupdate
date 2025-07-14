@@ -96,27 +96,21 @@ class BrowserHandler:
             return False
     
     def find_seller_info_button(self):
-        """판매자 정보 버튼 찾기 (타임아웃 단축)"""
+        """판매자 정보 버튼 찾기 (초고속 버전)"""
         try:
             print("🔍 판매자 정보 버튼 찾는 중...")
             
-            # 페이지 로드 완료 대기 (단축)
-            time.sleep(0.5)
-            
-            # 짧은 타임아웃으로 버튼 찾기
+            # 즉시 버튼 존재 여부 확인 (대기시간 없음)
             try:
-                seller_info_button = WebDriverWait(self.driver, 3).until(
+                # 0.5초만 대기 (3초에서 0.5초로 대폭 단축)
+                seller_info_button = WebDriverWait(self.driver, 0.5).until(
                     EC.presence_of_element_located((By.XPATH, SELLER_INFO_BUTTON_XPATH))
                 )
                 print("✅ 판매자 정보 버튼 발견!")
                 
-                # 버튼이 보이도록 스크롤
+                # 즉시 클릭 (스크롤 대기시간 제거)
                 self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", seller_info_button)
-                time.sleep(0.3)
-                
-                # 클릭
                 seller_info_button.click()
-                time.sleep(1)
                 
                 print("✅ 판매자 정보 버튼 클릭 완료!")
                 return True
@@ -153,13 +147,32 @@ class BrowserHandler:
             print(f"❌ 캡차 감지 오류: {e}")
             return False
     
-    def wait_for_captcha_completion(self, timeout=60):
-        """캡차 완료 자동 감지 및 사용자 입력 대기 (자동 재시도 포함)"""
+    def wait_for_captcha_completion(self, timeout=30):
+        """캡차 완료 대기 (브라우저 상태 초기화 추가)"""
+        
+        # 🚨 브라우저 상태 초기화 (이전 페이지 영향 제거)
+        try:
+            # 메인 창으로 포커스 이동
+            self.driver.switch_to.window(self.main_window)
+            
+            # 잠시 대기 후 다시 캡차 창으로 이동
+            current_windows = self.driver.window_handles
+            if len(current_windows) > 1:
+                for window in current_windows:
+                    if window != self.main_window:
+                        self.driver.switch_to.window(window)
+                        break
+        except:
+            pass
+        
+        # 🚨 강제 대기를 맨 처음에 실행
+        print("⏳ 캡차 로딩 대기 중... (5초)")
+        time.sleep(5)  # 3초에서 5초로 늘림
+        
         print("\n" + "="*50)
         print("🔍 캡차가 나타났습니다!")
-        print("🤖 자동으로 캡차 완료를 감지합니다...")
-        print("🔄 캡차 창을 수동으로 닫으면 자동으로 재시도합니다")
-        print("또는 수동 옵션: r(캡차 다시로드) / s(건너뛰기)")
+        print("🤖 캡차를 풀어주세요. 완료되면 자동으로 감지합니다.")
+        print("🔄 다른 옵션: r(캡차 다시로드) / s(건너뛰기)")
         print("="*50)
         
         import threading
@@ -170,7 +183,7 @@ class BrowserHandler:
         
         def get_user_input():
             try:
-                user_input = input("선택 (자동 감지 중...): ").strip().lower()
+                user_input = input("선택 (캡차 처리 중...): ").strip().lower()
                 input_queue.put(user_input)
             except:
                 pass
@@ -181,7 +194,7 @@ class BrowserHandler:
         
         # 캡차 완료 자동 감지
         start_time = time.time()
-        check_interval = 2  # 2초마다 확인
+        check_interval = 3  # 2초에서 3초로 늘림 (더 여유있게)
         last_window_count = len(self.driver.window_handles)
         
         while time.time() - start_time < timeout:
@@ -197,24 +210,24 @@ class BrowserHandler:
             
             current_window_count = len(self.driver.window_handles)
             
-            # 🆕 캡차 창이 수동으로 닫혔는지 감지
+            # 캡차 창이 수동으로 닫혔는지 감지
             if last_window_count > 1 and current_window_count == 1:
                 print("🔄 캡차 창이 수동으로 닫힌 것을 감지 - 자동 재시도")
                 return "auto_retry"
             
-            # 캡차 완료 자동 감지
+            # 캡차 완료 자동 감지 (엄격하게)
             if self._check_captcha_completion():
-                print("✅ 캡차 자동 완료 감지!")
+                print("✅ 캡차 완료 자동 감지!")
                 return "success"
             
             last_window_count = current_window_count
             time.sleep(check_interval)
         
-        print("⏰ 캡차 대기 시간 초과")
+        print("⏰ 캡차 대기 시간 초과 (30초)")
         return "timeout"
     
     def _check_captcha_completion(self):
-        """캡차 완료 상태 확인"""
+        """캡차 완료 상태 확인 (조기 종료 방지)"""
         try:
             current_windows = self.driver.window_handles
             
@@ -223,41 +236,25 @@ class BrowserHandler:
                 print("   📋 캡차 창이 닫혔음을 감지")
                 return True
             
-            # 2. 현재 캡차 창이 열려있다면 페이지 변화 확인
+            # 2. 현재 캡차 창이 열려있다면 매우 엄격하게 확인
             if len(current_windows) > 1:
                 try:
-                    # 캡차 창에서 완료 관련 요소 확인
                     current_url = self.driver.current_url
-                    page_text = self.driver.find_element(By.TAG_NAME, 'body').text
                     
-                    # 완료 관련 키워드 확인
-                    completion_keywords = [
-                        '완료',
-                        '성공',
-                        '확인',
-                        '판매자 정보',
-                        '고객센터',
-                        '전화번호',
-                        '이메일'
-                    ]
-                    
-                    for keyword in completion_keywords:
-                        if keyword in page_text:
-                            print(f"   📋 완료 키워드 감지: {keyword}")
-                            return True
-                            
-                    # URL 변화 확인 (캡차에서 정보 페이지로)
-                    if 'captcha' not in current_url.lower():
-                        print("   📋 URL 변화 감지 (캡차 → 정보페이지)")
+                    # URL이 명확히 판매자 정보 페이지로 변경되었는지만 확인
+                    if ('sellerinfo' in current_url.lower() or 
+                        'seller' in current_url.lower() or
+                        'contact' in current_url.lower()):
+                        print("   📋 판매자 정보 URL로 변경됨")
                         return True
                         
                 except Exception as e:
-                    print(f"   ⚠️ 완료 상태 확인 중 오류: {e}")
+                    pass
             
+            # 기본적으로 미완료로 판단 (조기 종료 방지)
             return False
             
         except Exception as e:
-            print(f"   ❌ 캡차 완료 감지 오류: {e}")
             return False
     
     def close_captcha_page(self):
