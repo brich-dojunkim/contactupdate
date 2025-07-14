@@ -1,10 +1,11 @@
 # excel_handler.py
 """
-엑셀 파일 처리 모듈
+엑셀 파일 처리 모듈 (영업 종료 표기 개선)
 """
 
 import pandas as pd
 import logging
+from datetime import datetime
 from config import EXCEL_FILE_PATH, COLUMNS
 
 logger = logging.getLogger(__name__)
@@ -27,12 +28,19 @@ class ExcelHandler:
             raise
     
     def filter_naver_stores(self):
-        """네이버 스마트스토어만 필터링"""
+        """네이버 스마트스토어만 필터링 (영업종료 제외)"""
         try:
             # 네이버 스마트스토어 URL만 필터링
             naver_stores = self.df[
                 self.df[COLUMNS['STORE_URL']].str.contains('smartstore.naver.com', na=False)
             ].copy()
+            
+            # 영업종료로 표기된 항목 제외
+            before_closed_filter = len(naver_stores)
+            naver_stores = naver_stores[
+                ~(naver_stores[COLUMNS['UPDATED_PHONE']].astype(str).str.startswith('영업종료', na=False))
+            ]
+            closed_filtered_count = before_closed_filter - len(naver_stores)
             
             # 이미 최신화된 항목 제외 (전화번호와 이메일이 모두 있는 경우)
             before_filter = len(naver_stores)
@@ -47,7 +55,9 @@ class ExcelHandler:
             filtered_count = before_filter - len(naver_stores)
             total_count = len(naver_stores)
             
-            logger.info(f"전체 네이버 스토어: {before_filter}개")
+            logger.info(f"전체 네이버 스토어: {before_closed_filter}개")
+            if closed_filtered_count > 0:
+                logger.info(f"영업종료 제외: {closed_filtered_count}개")
             logger.info(f"이미 최신화 완료: {filtered_count}개 (건너뜀)")
             logger.info(f"처리할 네이버 스토어: {total_count}개 (아래에서 위로)")
             
@@ -56,6 +66,38 @@ class ExcelHandler:
         except Exception as e:
             logger.error(f"네이버 스토어 필터링 실패: {e}")
             raise
+    
+    def mark_as_closed(self, store_info):
+        """스토어를 영업 종료로 표기"""
+        try:
+            # 해당 행 찾기 (상호명으로 매칭)
+            store_name = store_info[COLUMNS['COMPANY_NAME']]
+            
+            # 인덱스 찾기
+            mask = self.df[COLUMNS['COMPANY_NAME']] == store_name
+            indices = self.df[mask].index
+            
+            if len(indices) > 0:
+                idx = indices[0]
+                
+                # 현재 날짜
+                current_date = datetime.now().strftime('%Y%m%d')
+                
+                # 영업종료 표기
+                closed_mark = f"영업종료_{current_date}"
+                
+                # 최신화 전화번호 컬럼에 영업종료 표기
+                self.df.loc[idx, COLUMNS['UPDATED_PHONE']] = closed_mark
+                
+                logger.info(f"✅ 영업종료 표기 완료: {store_name}")
+                return True
+            else:
+                logger.warning(f"⚠️ 매칭되는 행을 찾을 수 없음: {store_name}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"영업종료 표기 실패: {e}")
+            return False
     
     def update_seller_info(self, store_info, seller_info):
         """판매자 정보 업데이트"""

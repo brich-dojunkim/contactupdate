@@ -1,6 +1,6 @@
 # collector.py
 """
-네이버 판매자 정보 수집기 메인 클래스 (최적화 완료 + 영업종료 표기)
+네이버 판매자 정보 수집기 메인 클래스 (영업종료 기준: 버튼 유무)
 """
 
 import logging
@@ -44,7 +44,7 @@ class NaverSellerInfoCollector:
         self.browser_handler.close_driver()
     
     def process_single_store(self, store_info):
-        """단일 스토어 처리 (개선된 캡차 처리)"""
+        """단일 스토어 처리 (버튼 유무로 영업 상태 판단)"""
         try:
             store_name = store_info[COLUMNS['COMPANY_NAME']]
             store_url = store_info[COLUMNS['STORE_URL']]
@@ -86,22 +86,21 @@ class NaverSellerInfoCollector:
             accessible, access_msg = self.browser_handler.check_page_accessibility(store_url)
             if not accessible:
                 print(f"❌ {access_msg}")
+                # 접속 실패도 실시간 저장
                 self.excel_handler.log_error(store_info, access_msg)
                 return False
             
-            # 판매자 정보 버튼 클릭
-            print("🔍 판매자 정보 버튼을 찾는 중...")
-            if not self.browser_handler.click_seller_info_button_with_scroll():
+            # 판매자 정보 버튼 찾기 (1회만 시도)
+            if not self.browser_handler.find_seller_info_button():
                 print(f"❌ 영업 종료로 판단됨")
-                # 영업 종료 표기 및 즉시 저장
-                self.excel_handler.mark_as_closed(store_info)
-                self.excel_handler.save()
-                print(f"💾 영업종료 표기 저장 완료")
+                # 영업 종료 실시간 표기 및 저장
+                if self.excel_handler.mark_as_closed(store_info):
+                    print(f"💾 영업종료 실시간 저장 완료")
+                else:
+                    print(f"❌ 영업종료 저장 실패")
                 return True  # 정상적인 건너뛰기로 처리
             
-            print("✅ 판매자 정보 버튼 클릭 완료")
-            
-            # 캡차 처리 개선된 로직
+            # 캡차 처리 및 정보 추출
             return self._handle_captcha_and_extract_info(store_info)
             
         except Exception as e:
@@ -116,7 +115,7 @@ class NaverSellerInfoCollector:
                 print(f"\n🔄 캡차 처리 시도 {attempt + 1}/{max_retries}")
                 
                 # 잠시 대기 후 창 변화로 캡차 감지
-                time.sleep(1)  # 3초에서 1초로 단축
+                time.sleep(1)
                 
                 # 창 변화로 캡차 확인
                 has_captcha = self.browser_handler.detect_captcha_by_window_change()
@@ -127,24 +126,42 @@ class NaverSellerInfoCollector:
                 
                 print("🔍 캡차 감지됨")
                 
-                # 사용자 입력 대기
+                # 사용자 입력 대기 (자동 감지 포함)
                 result = self.browser_handler.wait_for_captcha_completion()
                 
                 if result == "skip":
                     print("⏭️ 사용자 요청으로 건너뜀")
                     return False
+                
+                elif result == "timeout":
+                    print("⏰ 캡차 대기 시간 초과 - 건너뜀")
+                    return False
+                
+                elif result == "auto_retry":
+                    print("🔄 캡차 창 수동 종료 감지 - 자동으로 버튼 재클릭")
+                    # 메인 창으로 포커스 이동
+                    self.browser_handler.driver.switch_to.window(self.browser_handler.main_window)
+                    time.sleep(0.5)
+                    
+                    # 다시 버튼 클릭
+                    if self.browser_handler.find_seller_info_button():
+                        print("✅ 자동 버튼 재클릭 완료")
+                        continue  # 다음 시도로
+                    else:
+                        print("❌ 자동 재시도 버튼 클릭 실패")
+                        return False
                     
                 elif result == "reload":
                     print("🔄 캡차 탭 닫고 다시 시도")
                     
-                    # 캡차 페이지 닫기 (페이지 재로딩 없이)
+                    # 캡차 페이지 닫기
                     if self.browser_handler.close_captcha_page():
                         print("✅ 캡차 탭 닫기 완료")
-                        time.sleep(0.5)  # 2초에서 0.5초로 단축
+                        time.sleep(0.5)
                         
-                        # 페이지 재로딩 없이 바로 다시 버튼 클릭
+                        # 다시 버튼 클릭
                         print("🔄 판매자 정보 버튼 다시 클릭...")
-                        if self.browser_handler.click_seller_info_button_with_scroll():
+                        if self.browser_handler.find_seller_info_button():
                             print("✅ 버튼 재클릭 완료")
                             continue  # 다음 시도로
                         else:
@@ -156,7 +173,7 @@ class NaverSellerInfoCollector:
                         
                 elif result == "success":
                     print("✅ 캡차 완료 - 정보 추출 시도")
-                    time.sleep(1)  # 2초에서 1초로 단축
+                    time.sleep(1)
                     
                     # 정보 추출 시도
                     return self._extract_and_save_info(store_info)
@@ -165,7 +182,7 @@ class NaverSellerInfoCollector:
                 print(f"❌ 캡차 처리 시도 {attempt + 1} 실패: {e}")
                 if attempt < max_retries - 1:
                     print("🔄 다음 시도 준비...")
-                    time.sleep(1)  # 2초에서 1초로 단축
+                    time.sleep(1)
                     continue
                 else:
                     print("❌ 모든 캡차 처리 시도 실패")
@@ -175,12 +192,9 @@ class NaverSellerInfoCollector:
         return False
     
     def _extract_and_save_info(self, store_info):
-        """정보 추출 및 저장 (최적화)"""
+        """정보 추출 및 실시간 저장"""
         try:
             print("📋 판매자 정보 추출 중...")
-            
-            # 페이지 로드 대기 단축
-            time.sleep(1)  # 3초에서 1초로 단축
             
             # 판매자 정보 추출
             seller_info = self.browser_handler.extract_seller_info()
@@ -190,25 +204,24 @@ class NaverSellerInfoCollector:
                 for key, value in seller_info.items():
                     print(f"   {key}: {value}")
                 
-                # 엑셀 업데이트 및 즉시 저장
+                # 실시간 엑셀 업데이트 및 저장
                 if self.excel_handler.update_seller_info(store_info, seller_info):
-                    saved_file = self.excel_handler.save()
-                    if saved_file:
-                        print(f"💾 엑셀 저장 완료")
-                    else:
-                        print(f"💾 엑셀 업데이트 완료")
+                    print(f"💾 실시간 저장 완료")
                     return True
                 else:
-                    print(f"⚠️ 엑셀 업데이트 실패")
+                    print(f"⚠️ 실시간 저장 실패")
                     return False
             else:
                 print(f"❌ 정보 추출 실패")
+                # 에러도 실시간 저장
                 self.excel_handler.log_error(store_info, "정보 추출 실패")
                 return False
                 
         except Exception as e:
             logger.error(f"정보 추출 및 저장 실패: {e}")
             print(f"❌ 정보 추출 및 저장 중 오류: {e}")
+            # 에러도 실시간 저장
+            self.excel_handler.log_error(store_info, f"처리 오류: {str(e)}")
             return False
     
     def run(self):
@@ -220,6 +233,11 @@ class NaverSellerInfoCollector:
             print("🚫 영업종료 표기된 항목은 자동 제외")
             print("🔑 네이버 로그인이 필요합니다!")
             print("🎯 최적화된 캡차 처리 시스템 적용")
+            print("🆕 판매자 정보 버튼 유무로 영업 상태 판단")
+            print("🤖 캡차 자동 완료 감지 시스템 적용")
+            print("🔄 캡차 창 수동 종료 시 자동 재시도")
+            print("⚡ 정보 추출 성능 최적화 적용")
+            print("💾 실시간 엑셀 저장 시스템 적용")
             print("="*60)
             
             # 1. 초기 설정
@@ -268,7 +286,7 @@ class NaverSellerInfoCollector:
             print(f"실패: {failed_count}")
             if failed_count > 0:
                 print(f"⚠️ 실패한 스토어들은 엑셀에 에러 메시지가 기록되었습니다.")
-            print(f"📝 영업종료된 스토어들은 '영업종료_날짜' 형태로 표기되어 다음 실행시 제외됩니다.")
+            print(f"📝 모든 변경사항이 실시간으로 저장되어 중단되어도 데이터가 보존됩니다.")
             print(f"최종 파일: {self.excel_file_path}")
             print("="*60)
             

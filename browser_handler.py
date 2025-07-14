@@ -1,6 +1,6 @@
 # browser_handler.py
 """
-브라우저 제어 및 웹 스크래핑 모듈 (최적화 완료 + 영업종료 감지 강화)
+브라우저 제어 및 웹 스크래핑 모듈 (영업종료 기준: 버튼 유무, 1회 검색)
 """
 
 import time
@@ -55,10 +55,14 @@ class BrowserHandler:
             logger.info("드라이버 종료")
     
     def navigate_to_url(self, url):
-        """URL로 이동"""
+        """URL로 이동 (URL 형식 검증 추가)"""
         try:
+            # URL 형식 검증 및 수정
+            if not url.startswith(('http://', 'https://')):
+                url = 'https://' + url
+                
             self.driver.get(url)
-            time.sleep(PAGE_LOAD_DELAY)
+            time.sleep(1)  # 2초에서 1초로 단축
             return True
         except Exception as e:
             logger.error(f"URL 이동 실패: {e}")
@@ -91,87 +95,37 @@ class BrowserHandler:
         except:
             return False
     
-    def click_seller_info_button_with_scroll(self):
-        """판매자 정보 버튼 클릭 (빠른 포기 로직 추가)"""
+    def find_seller_info_button(self):
+        """판매자 정보 버튼 찾기 (타임아웃 단축)"""
         try:
             print("🔍 판매자 정보 버튼 찾는 중...")
             
-            # 1차: 스크롤 없이 빠른 확인
+            # 페이지 로드 완료 대기 (단축)
+            time.sleep(0.5)
+            
+            # 짧은 타임아웃으로 버튼 찾기
             try:
-                seller_info_button = self.driver.find_element(By.XPATH, SELLER_INFO_BUTTON_XPATH)
-                print("✅ 판매자 정보 버튼 발견 (스크롤 없이)!")
+                seller_info_button = WebDriverWait(self.driver, 3).until(
+                    EC.presence_of_element_located((By.XPATH, SELLER_INFO_BUTTON_XPATH))
+                )
+                print("✅ 판매자 정보 버튼 발견!")
+                
+                # 버튼이 보이도록 스크롤
+                self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", seller_info_button)
+                time.sleep(0.3)
+                
+                # 클릭
                 seller_info_button.click()
-                time.sleep(2)
+                time.sleep(1)
+                
+                print("✅ 판매자 정보 버튼 클릭 완료!")
                 return True
-            except:
-                pass
-            
-            # 2차: 페이지 상태 확인
-            try:
-                page_text = self.driver.find_element(By.TAG_NAME, 'body').text
                 
-                # 영업 종료/중단 관련 키워드 확인
-                closed_keywords = [
-                    '일시적으로 운영이 중지되었습니다',
-                    '판매자의 사정에 따라',
-                    '영업을 종료',
-                    '판매중단',
-                    '스토어 운영을 중단',
-                    '일시 중단',
-                    '영업 중단',
-                    '서비스를 종료',
-                    '운영하지 않습니다',
-                    '더 이상 운영되지 않습니다'
-                ]
-                
-                for keyword in closed_keywords:
-                    if keyword in page_text:
-                        print(f"❌ 영업 종료 감지: '{keyword}' - 버튼 찾기 중단")
-                        return False
-                
-                # 판매자 정보 버튼이 없는 페이지 패턴 확인
-                if '상품이 없습니다' in page_text or '등록된 상품이 없습니다' in page_text:
-                    print("❌ 상품 없는 스토어 - 버튼 찾기 중단")
-                    return False
-                    
-            except Exception as e:
-                print(f"   - 페이지 상태 확인 실패: {e}")
-            
-            # 3차: 제한된 스크롤로 버튼 찾기 (최대 2번만)
-            print("🔍 제한된 스크롤로 버튼 찾기...")
-            max_scrolls = 2  # 5번에서 2번으로 대폭 단축
-            
-            for i in range(max_scrolls):
-                print(f"📜 스크롤 시도 {i+1}/{max_scrolls}")
-                
-                try:
-                    seller_info_button = self.driver.find_element(By.XPATH, SELLER_INFO_BUTTON_XPATH)
-                    print("✅ 판매자 정보 버튼 발견!")
-                    
-                    # 버튼이 보이도록 스크롤
-                    self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", seller_info_button)
-                    time.sleep(0.5)  # 1초에서 0.5초로 단축
-                    
-                    # 클릭 시도
-                    print("🖱️ 버튼 클릭 시도...")
-                    seller_info_button.click()
-                    time.sleep(2)  # 3초에서 2초로 단축
-                    
-                    print("✅ 버튼 클릭 완료!")
-                    return True
-                    
-                except Exception as e:
-                    print(f"❌ 스크롤 {i+1}에서 버튼 못찾음")
-                    # 빠르게 아래로 스크롤
-                    self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight / 2);")
-                    time.sleep(0.5)  # 1초에서 0.5초로 단축
-                    continue
-            
-            print("❌ 제한된 시도 후에도 버튼을 찾을 수 없음 - 영업 종료로 판단")
-            return False
+            except TimeoutException:
+                print(f"❌ 판매자 정보 버튼을 찾을 수 없음 - 영업 종료로 판단")
+                return False
             
         except Exception as e:
-            logger.error(f"버튼 클릭 실패: {e}")
             print(f"❌ 버튼 클릭 중 예외 발생: {e}")
             return False
     
@@ -199,22 +153,112 @@ class BrowserHandler:
             print(f"❌ 캡차 감지 오류: {e}")
             return False
     
-    def wait_for_captcha_completion(self):
-        """캡차 완료 대기"""
+    def wait_for_captcha_completion(self, timeout=60):
+        """캡차 완료 자동 감지 및 사용자 입력 대기 (자동 재시도 포함)"""
         print("\n" + "="*50)
         print("🔍 캡차가 나타났습니다!")
-        print("옵션: Enter(완료) / r(캡차 다시로드) / s(건너뛰기)")
+        print("🤖 자동으로 캡차 완료를 감지합니다...")
+        print("🔄 캡차 창을 수동으로 닫으면 자동으로 재시도합니다")
+        print("또는 수동 옵션: r(캡차 다시로드) / s(건너뛰기)")
         print("="*50)
         
-        user_input = input("선택: ").strip().lower()
+        import threading
+        import queue
         
-        if user_input == 'r':
-            return "reload"
-        elif user_input == 's':
-            return "skip"
-        else:
-            time.sleep(2)
-            return "success"
+        # 사용자 입력을 위한 큐
+        input_queue = queue.Queue()
+        
+        def get_user_input():
+            try:
+                user_input = input("선택 (자동 감지 중...): ").strip().lower()
+                input_queue.put(user_input)
+            except:
+                pass
+        
+        # 사용자 입력 스레드 시작
+        input_thread = threading.Thread(target=get_user_input, daemon=True)
+        input_thread.start()
+        
+        # 캡차 완료 자동 감지
+        start_time = time.time()
+        check_interval = 2  # 2초마다 확인
+        last_window_count = len(self.driver.window_handles)
+        
+        while time.time() - start_time < timeout:
+            # 사용자 입력 확인
+            try:
+                user_input = input_queue.get_nowait()
+                if user_input == 'r':
+                    return "reload"
+                elif user_input == 's':
+                    return "skip"
+            except queue.Empty:
+                pass
+            
+            current_window_count = len(self.driver.window_handles)
+            
+            # 🆕 캡차 창이 수동으로 닫혔는지 감지
+            if last_window_count > 1 and current_window_count == 1:
+                print("🔄 캡차 창이 수동으로 닫힌 것을 감지 - 자동 재시도")
+                return "auto_retry"
+            
+            # 캡차 완료 자동 감지
+            if self._check_captcha_completion():
+                print("✅ 캡차 자동 완료 감지!")
+                return "success"
+            
+            last_window_count = current_window_count
+            time.sleep(check_interval)
+        
+        print("⏰ 캡차 대기 시간 초과")
+        return "timeout"
+    
+    def _check_captcha_completion(self):
+        """캡차 완료 상태 확인"""
+        try:
+            current_windows = self.driver.window_handles
+            
+            # 1. 캡차 창이 자동으로 닫혔는지 확인
+            if len(current_windows) == 1:
+                print("   📋 캡차 창이 닫혔음을 감지")
+                return True
+            
+            # 2. 현재 캡차 창이 열려있다면 페이지 변화 확인
+            if len(current_windows) > 1:
+                try:
+                    # 캡차 창에서 완료 관련 요소 확인
+                    current_url = self.driver.current_url
+                    page_text = self.driver.find_element(By.TAG_NAME, 'body').text
+                    
+                    # 완료 관련 키워드 확인
+                    completion_keywords = [
+                        '완료',
+                        '성공',
+                        '확인',
+                        '판매자 정보',
+                        '고객센터',
+                        '전화번호',
+                        '이메일'
+                    ]
+                    
+                    for keyword in completion_keywords:
+                        if keyword in page_text:
+                            print(f"   📋 완료 키워드 감지: {keyword}")
+                            return True
+                            
+                    # URL 변화 확인 (캡차에서 정보 페이지로)
+                    if 'captcha' not in current_url.lower():
+                        print("   📋 URL 변화 감지 (캡차 → 정보페이지)")
+                        return True
+                        
+                except Exception as e:
+                    print(f"   ⚠️ 완료 상태 확인 중 오류: {e}")
+            
+            return False
+            
+        except Exception as e:
+            print(f"   ❌ 캡차 완료 감지 오류: {e}")
+            return False
     
     def close_captcha_page(self):
         """캡차 페이지/팝업 닫기 (최적화)"""
@@ -293,62 +337,46 @@ class BrowserHandler:
                 print(f"   ✅ 이메일 저장: {value}")
     
     def extract_seller_info(self):
-        """판매자 정보 추출 (config 설정 활용)"""
+        """판매자 정보 추출 (중복 제거 및 성능 최적화)"""
         try:
-            from config import SELLER_INFO_SELECTORS, PHONE_KEYWORDS, EMAIL_KEYWORDS
+            from config import PHONE_KEYWORDS, EMAIL_KEYWORDS
             
             seller_info = {}
             
             print("🔍 판매자 정보 추출 시작...")
             
-            # DL 컨테이너 찾기
-            info_containers = []
-            for selector in SELLER_INFO_SELECTORS['DL_CONTAINERS']:
-                try:
-                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                    if elements:
-                        info_containers.extend(elements)
-                        print(f"   - {selector}에서 {len(elements)}개 컨테이너 발견")
-                except Exception as e:
-                    print(f"   - {selector} 오류: {e}")
-                    continue
+            # 빠른 추출을 위해 우선순위 선택자 사용
+            priority_selectors = [
+                'dl > div',  # 가장 일반적인 패턴
+                '.aAVvlAZ43w'  # 네이버 특화 클래스
+            ]
             
-            if not info_containers:
-                print("❌ 정보 컨테이너를 찾을 수 없음")
-                return {}
-            
-            # 각 컨테이너에서 정보 추출
-            for container in info_containers:
+            # 우선순위 선택자로 먼저 시도
+            for selector in priority_selectors:
                 try:
-                    # dt/dd 쌍으로 정보 추출 시도
-                    labels = container.find_elements(By.CSS_SELECTOR, ', '.join(SELLER_INFO_SELECTORS['LABELS']))
-                    values = container.find_elements(By.CSS_SELECTOR, ', '.join(SELLER_INFO_SELECTORS['VALUES']))
-                    
-                    # 라벨과 값이 같은 수만큼 있는지 확인
-                    if len(labels) == len(values):
-                        for label_elem, value_elem in zip(labels, values):
-                            try:
-                                label = label_elem.text.strip()
-                                value = value_elem.text.strip()
-                                
-                                if label and value:
-                                    self._process_label_value_pair(label, value, seller_info)
-                            except Exception as e:
-                                print(f"   - 라벨/값 쌍 처리 오류: {e}")
-                                continue
-                    else:
-                        # 개별 요소에서 텍스트 추출 시도
-                        container_text = container.text.strip()
-                        if container_text:
-                            self._process_container_text(container_text, seller_info)
+                    containers = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    if containers:
+                        print(f"   ✅ {selector}에서 {len(containers)}개 컨테이너 발견")
+                        
+                        # 각 컨테이너에서 정보 추출 (최대 3개만)
+                        for container in containers[:3]:
+                            extracted = self._extract_from_container(container)
+                            if extracted:
+                                # 중복 방지: 이미 있는 정보는 덮어쓰지 않음
+                                for key, value in extracted.items():
+                                    if key not in seller_info:
+                                        seller_info[key] = value
+                        
+                        # 전화번호와 이메일 모두 찾았으면 조기 종료
+                        if '전화번호' in seller_info and '이메일' in seller_info:
+                            break
                             
                 except Exception as e:
-                    print(f"   - 컨테이너 처리 오류: {e}")
                     continue
             
-            # 전체 페이지에서 추가 정보 검색
+            # 우선순위 선택자로 못 찾았을 때만 전체 페이지 검색
             if not seller_info:
-                print("🔍 전체 페이지에서 추가 정보 검색...")
+                print("🔍 전체 페이지에서 패턴 검색...")
                 self._extract_from_full_page(seller_info)
             
             print(f"📋 최종 추출된 정보: {seller_info}")
@@ -358,6 +386,95 @@ class BrowserHandler:
             logger.error(f"정보 추출 실패: {e}")
             print(f"❌ 정보 추출 중 예외: {e}")
             return {}
+    
+    def _extract_from_container(self, container):
+        """컨테이너에서 정보 추출 (중복 제거)"""
+        from config import PHONE_KEYWORDS, EMAIL_KEYWORDS
+        
+        extracted = {}
+        
+        try:
+            # dt/dd 패턴 시도
+            labels = container.find_elements(By.CSS_SELECTOR, 'dt, ._1nqckXI-BW')
+            values = container.find_elements(By.CSS_SELECTOR, 'dd, .EdE67hDR6I')
+            
+            if len(labels) == len(values):
+                for label_elem, value_elem in zip(labels, values):
+                    try:
+                        label = label_elem.text.strip()
+                        value = value_elem.text.strip()
+                        
+                        if not label or not value:
+                            continue
+                        
+                        # 전화번호 확인 (중복 방지)
+                        if any(keyword in label for keyword in PHONE_KEYWORDS) and '전화번호' not in extracted:
+                            cleaned_phone = self._clean_phone_number(value)
+                            if cleaned_phone:
+                                extracted['전화번호'] = cleaned_phone
+                                print(f"   ✅ 전화번호 발견: {cleaned_phone}")
+                        
+                        # 이메일 확인 (중복 방지)
+                        elif any(keyword in label.lower() for keyword in EMAIL_KEYWORDS) and '이메일' not in extracted:
+                            if '@' in value:
+                                extracted['이메일'] = value
+                                print(f"   ✅ 이메일 발견: {value}")
+                        
+                        # 둘 다 찾았으면 조기 종료
+                        if len(extracted) == 2:
+                            break
+                            
+                    except Exception:
+                        continue
+            
+            # dt/dd 패턴으로 못 찾았고 아직 정보가 없으면 텍스트 파싱
+            if not extracted:
+                container_text = container.text.strip()
+                if container_text:
+                    extracted.update(self._parse_text_for_info(container_text))
+            
+            return extracted
+            
+        except Exception as e:
+            return {}
+    
+    def _parse_text_for_info(self, text):
+        """텍스트에서 정보 파싱 (최적화)"""
+        from config import PHONE_KEYWORDS, EMAIL_KEYWORDS
+        
+        info = {}
+        lines = text.split('\n')
+        
+        for line in lines:
+            if ':' not in line:
+                continue
+                
+            parts = line.split(':', 1)
+            if len(parts) != 2:
+                continue
+                
+            label = parts[0].strip()
+            value = parts[1].strip()
+            
+            if not label or not value:
+                continue
+            
+            # 전화번호 확인
+            if any(keyword in label for keyword in PHONE_KEYWORDS) and '전화번호' not in info:
+                cleaned_phone = self._clean_phone_number(value)
+                if cleaned_phone:
+                    info['전화번호'] = cleaned_phone
+            
+            # 이메일 확인
+            elif any(keyword in label.lower() for keyword in EMAIL_KEYWORDS) and '이메일' not in info:
+                if '@' in value:
+                    info['이메일'] = value
+            
+            # 둘 다 찾았으면 조기 종료
+            if len(info) == 2:
+                break
+        
+        return info
     
     def _process_container_text(self, text, seller_info):
         """컨테이너 텍스트 처리"""
