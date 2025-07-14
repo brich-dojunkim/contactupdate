@@ -1,10 +1,10 @@
 # config.py
 """
-네이버 판매자 정보 수집기 설정 파일 (캡차 처리 강화)
+네이버 판매자 정보 수집기 설정 파일 (CSV 저장으로 변경)
 """
 
-# 파일 경로 설정
-EXCEL_FILE_PATH = "sellers_250711.xlsx"
+# 파일 경로 설정 - CSV로 변경
+EXCEL_FILE_PATH = "sellers_250711.csv"
 
 # 브라우저 설정
 BROWSER_WAIT_TIME = 10

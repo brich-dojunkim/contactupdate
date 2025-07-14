@@ -70,15 +70,16 @@ class NaverSellerInfoCollector:
             current_phone = store_info.get(COLUMNS['UPDATED_PHONE'], '')
             current_email = store_info.get(COLUMNS['UPDATED_EMAIL'], '')
             
-            # 이미 영업 종료로 표기된 경우 건너뛰기
+            # 이미 영업 종료로 표기된 경우 건너뛰기 (추가 보안)
             if (pd.notna(current_phone) and str(current_phone).strip().startswith('영업종료')):
                 print(f"⏭️ 이미 영업종료로 표기됨 - 건너뜀")
                 return True
             
-            # 둘 다 이미 있으면 건너뛰기
+            # 둘 다 이미 있고 ERROR가 아닌 경우 건너뛰기 (추가 보안)
             if (pd.notna(current_phone) and pd.notna(current_email) and 
                 str(current_phone).strip() != '' and str(current_email).strip() != '' and
-                not str(current_phone).strip().startswith('ERROR')):
+                not str(current_phone).strip().startswith('ERROR') and
+                not str(current_phone).strip().startswith('영업종료')):
                 print(f"⏭️ 이미 최신화 완료됨 - 건너뜀")
                 return True
             
@@ -206,7 +207,7 @@ class NaverSellerInfoCollector:
                 
                 # 실시간 엑셀 업데이트 및 저장
                 if self.excel_handler.update_seller_info(store_info, seller_info):
-                    print(f"💾 실시간 저장 완료")
+                    print(f"💾 실시간 CSV 저장 완료")
                     return True
                 else:
                     print(f"⚠️ 실시간 저장 실패")
@@ -231,13 +232,14 @@ class NaverSellerInfoCollector:
             print("📋 처리 방식: 아래에서 위로 (역순)")
             print("⏭️ 이미 최신화된 항목은 자동 건너뜀")
             print("🚫 영업종료 표기된 항목은 자동 제외")
+            print("✅ 이미 최신화된 항목도 자동 제외")
             print("🔑 네이버 로그인이 필요합니다!")
             print("🎯 최적화된 캡차 처리 시스템 적용")
             print("🆕 판매자 정보 버튼 유무로 영업 상태 판단")
             print("🤖 캡차 자동 완료 감지 시스템 적용")
             print("🔄 캡차 창 수동 종료 시 자동 재시도")
             print("⚡ 정보 추출 성능 최적화 적용")
-            print("💾 실시간 엑셀 저장 시스템 적용")
+            print("💾 실시간 CSV 저장 시스템 적용")
             print("="*60)
             
             # 1. 초기 설정
