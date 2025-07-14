@@ -1,13 +1,13 @@
 # collector.py
 """
-네이버 판매자 정보 수집기 메인 클래스 (최적화 완료)
+네이버 판매자 정보 수집기 메인 클래스 (최적화 완료 + 영업종료 표기)
 """
 
 import logging
 import time
 import pandas as pd
 
-from config import EXCEL_FILE_PATH, COLUMNS, INTER_STORE_DELAY
+from config import EXCEL_FILE_PATH, COLUMNS, INTER_STORE_DELAY, SELLER_INFO_BUTTON_XPATH
 from excel_handler import ExcelHandler
 from browser_handler import BrowserHandler
 
@@ -70,9 +70,15 @@ class NaverSellerInfoCollector:
             current_phone = store_info.get(COLUMNS['UPDATED_PHONE'], '')
             current_email = store_info.get(COLUMNS['UPDATED_EMAIL'], '')
             
+            # 이미 영업 종료로 표기된 경우 건너뛰기
+            if (pd.notna(current_phone) and str(current_phone).strip().startswith('영업종료')):
+                print(f"⏭️ 이미 영업종료로 표기됨 - 건너뜀")
+                return True
+            
             # 둘 다 이미 있으면 건너뛰기
             if (pd.notna(current_phone) and pd.notna(current_email) and 
-                str(current_phone).strip() != '' and str(current_email).strip() != ''):
+                str(current_phone).strip() != '' and str(current_email).strip() != '' and
+                not str(current_phone).strip().startswith('ERROR')):
                 print(f"⏭️ 이미 최신화 완료됨 - 건너뜀")
                 return True
             
@@ -86,10 +92,12 @@ class NaverSellerInfoCollector:
             # 판매자 정보 버튼 클릭
             print("🔍 판매자 정보 버튼을 찾는 중...")
             if not self.browser_handler.click_seller_info_button_with_scroll():
-                error_msg = "판매자 정보 버튼 없음 (영업 종료 추정)"
-                print(f"❌ {error_msg}")
-                self.excel_handler.log_error(store_info, error_msg)
-                return True  # False에서 True로 변경 - 정상적인 건너뛰기로 처리
+                print(f"❌ 영업 종료로 판단됨")
+                # 영업 종료 표기 및 즉시 저장
+                self.excel_handler.mark_as_closed(store_info)
+                self.excel_handler.save()
+                print(f"💾 영업종료 표기 저장 완료")
+                return True  # 정상적인 건너뛰기로 처리
             
             print("✅ 판매자 정보 버튼 클릭 완료")
             
@@ -209,6 +217,7 @@ class NaverSellerInfoCollector:
             print("🚀 네이버 판매자 정보 수집 시작")
             print("📋 처리 방식: 아래에서 위로 (역순)")
             print("⏭️ 이미 최신화된 항목은 자동 건너뜀")
+            print("🚫 영업종료 표기된 항목은 자동 제외")
             print("🔑 네이버 로그인이 필요합니다!")
             print("🎯 최적화된 캡차 처리 시스템 적용")
             print("="*60)
@@ -259,6 +268,7 @@ class NaverSellerInfoCollector:
             print(f"실패: {failed_count}")
             if failed_count > 0:
                 print(f"⚠️ 실패한 스토어들은 엑셀에 에러 메시지가 기록되었습니다.")
+            print(f"📝 영업종료된 스토어들은 '영업종료_날짜' 형태로 표기되어 다음 실행시 제외됩니다.")
             print(f"최종 파일: {self.excel_file_path}")
             print("="*60)
             

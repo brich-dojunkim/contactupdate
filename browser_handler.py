@@ -1,6 +1,6 @@
 # browser_handler.py
 """
-브라우저 제어 및 웹 스크래핑 모듈 (최적화 완료)
+브라우저 제어 및 웹 스크래핑 모듈 (최적화 완료 + 영업종료 감지 강화)
 """
 
 import time
@@ -92,17 +92,55 @@ class BrowserHandler:
             return False
     
     def click_seller_info_button_with_scroll(self):
-        """판매자 정보 버튼 클릭 (스크롤 포함) - 창 변화 감지"""
+        """판매자 정보 버튼 클릭 (빠른 포기 로직 추가)"""
         try:
-            print("🔍 스크롤하면서 판매자 정보 버튼 찾는 중...")
+            print("🔍 판매자 정보 버튼 찾는 중...")
             
-            # 버튼 클릭 전 창 정보 저장
-            initial_windows = self.driver.window_handles
-            initial_url = self.driver.current_url
-            print(f"   - 초기 창 개수: {len(initial_windows)}")
-            print(f"   - 초기 URL: {initial_url}")
+            # 1차: 스크롤 없이 빠른 확인
+            try:
+                seller_info_button = self.driver.find_element(By.XPATH, SELLER_INFO_BUTTON_XPATH)
+                print("✅ 판매자 정보 버튼 발견 (스크롤 없이)!")
+                seller_info_button.click()
+                time.sleep(2)
+                return True
+            except:
+                pass
             
-            max_scrolls = 5
+            # 2차: 페이지 상태 확인
+            try:
+                page_text = self.driver.find_element(By.TAG_NAME, 'body').text
+                
+                # 영업 종료/중단 관련 키워드 확인
+                closed_keywords = [
+                    '일시적으로 운영이 중지되었습니다',
+                    '판매자의 사정에 따라',
+                    '영업을 종료',
+                    '판매중단',
+                    '스토어 운영을 중단',
+                    '일시 중단',
+                    '영업 중단',
+                    '서비스를 종료',
+                    '운영하지 않습니다',
+                    '더 이상 운영되지 않습니다'
+                ]
+                
+                for keyword in closed_keywords:
+                    if keyword in page_text:
+                        print(f"❌ 영업 종료 감지: '{keyword}' - 버튼 찾기 중단")
+                        return False
+                
+                # 판매자 정보 버튼이 없는 페이지 패턴 확인
+                if '상품이 없습니다' in page_text or '등록된 상품이 없습니다' in page_text:
+                    print("❌ 상품 없는 스토어 - 버튼 찾기 중단")
+                    return False
+                    
+            except Exception as e:
+                print(f"   - 페이지 상태 확인 실패: {e}")
+            
+            # 3차: 제한된 스크롤로 버튼 찾기 (최대 2번만)
+            print("🔍 제한된 스크롤로 버튼 찾기...")
+            max_scrolls = 2  # 5번에서 2번으로 대폭 단축
+            
             for i in range(max_scrolls):
                 print(f"📜 스크롤 시도 {i+1}/{max_scrolls}")
                 
@@ -112,35 +150,24 @@ class BrowserHandler:
                     
                     # 버튼이 보이도록 스크롤
                     self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", seller_info_button)
-                    time.sleep(1)
+                    time.sleep(0.5)  # 1초에서 0.5초로 단축
                     
-                    # 클릭 가능할 때까지 대기
-                    WebDriverWait(self.driver, 5).until(
-                        EC.element_to_be_clickable((By.XPATH, SELLER_INFO_BUTTON_XPATH))
-                    )
-                    
+                    # 클릭 시도
                     print("🖱️ 버튼 클릭 시도...")
                     seller_info_button.click()
-                    time.sleep(3)  # 창이 뜰 시간을 충분히 대기
+                    time.sleep(2)  # 3초에서 2초로 단축
                     
                     print("✅ 버튼 클릭 완료!")
-                    
-                    # 창 변화 확인
-                    final_windows = self.driver.window_handles
-                    final_url = self.driver.current_url
-                    
-                    print(f"   - 최종 창 개수: {len(final_windows)}")
-                    print(f"   - 최종 URL: {final_url}")
-                    
                     return True
                     
                 except Exception as e:
-                    print(f"❌ 스크롤 {i+1}에서 버튼 못찾음: {e}")
-                    self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                    time.sleep(1)
+                    print(f"❌ 스크롤 {i+1}에서 버튼 못찾음")
+                    # 빠르게 아래로 스크롤
+                    self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight / 2);")
+                    time.sleep(0.5)  # 1초에서 0.5초로 단축
                     continue
             
-            print("❌ 모든 스크롤 시도 후에도 버튼을 찾을 수 없음")
+            print("❌ 제한된 시도 후에도 버튼을 찾을 수 없음 - 영업 종료로 판단")
             return False
             
         except Exception as e:
